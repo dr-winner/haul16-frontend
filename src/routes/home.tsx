@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Area, AreaChart, Cell, Pie, PieChart, XAxis } from 'recharts'
-import { ArrowRight, Check, ClipboardCheck, FolderOpen, Hourglass, Loader2, Radio, Send, ShieldAlert } from 'lucide-react'
+import { ArrowRight, AlertTriangle, Check, ClipboardCheck, FolderOpen, Hourglass, Loader2, MessageSquare, Radio, Send, ShieldAlert, ShieldCheck, Smartphone } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { api, type NextAction, type SweepStatus } from '@/api'
@@ -20,6 +20,8 @@ import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ScanSources } from '@/components/scan-sources'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -428,33 +430,208 @@ function DemoPanel() {
 function SubmitPanel() {
   const qc = useQueryClient()
   const [url, setUrl] = useState('')
-  const submit = useMutation({
+  const [rawMessage, setRawMessage] = useState('')
+  const [senderPhone, setSenderPhone] = useState('')
+  const [autoInject, setAutoInject] = useState(true)
+
+  const submitUrl = useMutation({
     mutationFn: () => api.inject(url.trim()),
     onSuccess: () => {
       setUrl('')
       qc.invalidateQueries({ queryKey: ['stats'] })
+      toast.success('Suspicious URL queued for sandbox capture.')
     },
   })
+
+  const verifyInbound = useMutation({
+    mutationFn: () =>
+      api.inboundVerify({
+        message: rawMessage.trim(),
+        sender: senderPhone.trim() || undefined,
+        channel: 'whatsapp',
+        auto_inject: autoInject,
+      }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['stats'] })
+      if (data.verdict === 'FRAUD_DETECTED') {
+        toast.error('Fraud Detected: Unauthorized MoMo wallet or domain found.')
+      } else {
+        toast.success('Message verified against official brand directory.')
+      }
+    },
+  })
+
+  const loadSampleSmishing = () => {
+    setRawMessage(
+      'Urgent Notice: Yellow Card Christmas Promo! Double your wallet deposit today. Send GHS 200 commitment fee to MTN MoMo 055 412 3456 (Ref: YC Bonus) or verify your account now at https://yellowcard-ghana-promo.top/login'
+    )
+    setSenderPhone('+233241234567')
+  }
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Report a suspicious link</CardTitle>
-        <CardDescription>A link a customer forwarded. It is captured in the sandbox and scored against the register.</CardDescription>
+        <CardTitle className="flex items-center justify-between">
+          <span>Inbound Intake & Verification</span>
+          <Badge variant="outline" className="text-xs font-mono">
+            Ghana Telco / Web Risk
+          </Badge>
+        </CardTitle>
+        <CardDescription>
+          Verify suspicious links or analyze raw forwarded WhatsApp / SMS messages containing MoMo wallets.
+        </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
-        <form
-          className="flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (url.trim()) submit.mutate()
-          }}
-        >
-          <Label htmlFor="inject-url" className="sr-only">Suspicious URL</Label>
-          <Input id="inject-url" type="url" placeholder="https://…" value={url} onChange={(e) => setUrl(e.target.value)} required />
-          <Button type="submit" disabled={submit.isPending}>{submit.isPending ? 'Queuing…' : 'Check'}</Button>
-        </form>
-        {submit.data ? <p className="text-xs text-muted-foreground">{submit.data.duplicate ? 'Already tracked.' : 'Queued for capture.'}</p> : null}
-        <ErrorNote error={submit.error} />
+        <Tabs defaultValue="inbound" className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="inbound" className="flex items-center gap-1.5 text-xs">
+              <MessageSquare className="h-3.5 w-3.5" />
+              <span>WhatsApp / SMS MoMo Intake</span>
+            </TabsTrigger>
+            <TabsTrigger value="link" className="flex items-center gap-1.5 text-xs">
+              <Smartphone className="h-3.5 w-3.5" />
+              <span>Single URL Check</span>
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="inbound" className="space-y-3 pt-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="inbound-msg" className="text-xs text-muted-foreground">
+                Paste forwarded customer text:
+              </Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                onClick={loadSampleSmishing}
+              >
+                Load sample MoMo smishing
+              </Button>
+            </div>
+            <Textarea
+              id="inbound-msg"
+              placeholder="e.g. Deposit GHS 500 now to double your crypto! Send to MTN MoMo 055 412 3456 or claim at https://..."
+              value={rawMessage}
+              onChange={(e) => setRawMessage(e.target.value)}
+              rows={3}
+              className="font-mono text-xs"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                placeholder="Sender phone (optional e.g. +23324...)"
+                value={senderPhone}
+                onChange={(e) => setSenderPhone(e.target.value)}
+                className="h-8 max-w-[220px] text-xs"
+              />
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  id="auto-inject"
+                  checked={autoInject}
+                  onChange={(e) => setAutoInject(e.target.checked)}
+                  className="rounded border-input text-primary focus:ring-ring"
+                />
+                <Label htmlFor="auto-inject" className="cursor-pointer text-xs">
+                  Auto-inject links to triage
+                </Label>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                className="ml-auto h-8 text-xs"
+                disabled={verifyInbound.isPending || !rawMessage.trim()}
+                onClick={() => verifyInbound.mutate()}
+              >
+                {verifyInbound.isPending ? 'Analyzing…' : 'Verify Safety'}
+              </Button>
+            </div>
+
+            {verifyInbound.data && (
+              <div
+                className={cn(
+                  'rounded-md border p-3 text-xs space-y-2',
+                  verifyInbound.data.verdict === 'FRAUD_DETECTED'
+                    ? 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300'
+                    : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                )}
+              >
+                <div className="flex items-center gap-2 font-semibold">
+                  {verifyInbound.data.verdict === 'FRAUD_DETECTED' ? (
+                    <>
+                      <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                      <span>FRAUD DETECTED (Statutory Act 772 / Act 1038 Rail)</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                      <span>OFFICIAL BRAND IDENTIFIERS VERIFIED</span>
+                    </>
+                  )}
+                </div>
+                <p className="text-[11px] leading-relaxed opacity-90">
+                  {verifyInbound.data.warning_message}
+                </p>
+
+                {verifyInbound.data.extracted.unauthorized_phones.length > 0 && (
+                  <div className="pt-1">
+                    <span className="font-semibold text-[11px]">Unauthorized MoMo Numbers: </span>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {verifyInbound.data.extracted.unauthorized_phones.map((phone) => (
+                        <Badge key={phone} variant="destructive" className="font-mono text-[10px]">
+                          📱 {phone} (Telco Escalation Ready)
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {verifyInbound.data.extracted.unauthorized_urls.length > 0 && (
+                  <div className="pt-1">
+                    <span className="font-semibold text-[11px]">Lookalike Domains / Links: </span>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {verifyInbound.data.extracted.unauthorized_urls.map((link) => (
+                        <Badge key={link} variant="outline" className="font-mono text-[10px] border-red-400">
+                          🌐 {link}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            <ErrorNote error={verifyInbound.error} />
+          </TabsContent>
+
+          <TabsContent value="link" className="space-y-3 pt-2">
+            <form
+              className="flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (url.trim()) submitUrl.mutate()
+              }}
+            >
+              <Label htmlFor="inject-url" className="sr-only">Suspicious URL</Label>
+              <Input
+                id="inject-url"
+                type="url"
+                placeholder="https://suspicious-clone.com/…"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                required
+              />
+              <Button type="submit" disabled={submitUrl.isPending}>
+                {submitUrl.isPending ? 'Queuing…' : 'Check'}
+              </Button>
+            </form>
+            {submitUrl.data ? (
+              <p className="text-xs text-muted-foreground">
+                {submitUrl.data.duplicate ? 'Already tracked.' : 'Queued for sandbox capture.'}
+              </p>
+            ) : null}
+            <ErrorNote error={submitUrl.error} />
+          </TabsContent>
+        </Tabs>
       </CardContent>
     </Card>
   )

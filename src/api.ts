@@ -300,6 +300,24 @@ export interface Session {
   auth_enabled: boolean
 }
 
+export interface InboundVerifyResult {
+  verdict: 'FRAUD_DETECTED' | 'LIKELY_OFFICIAL' | 'INCONCLUSIVE'
+  is_official: boolean
+  brand_name: string
+  warning_message: string
+  extracted: {
+    phones: string[]
+    unauthorized_phones: string[]
+    wallets: Record<string, string[]>
+    unauthorized_wallets: Record<string, string[]>
+    urls: string[]
+    unauthorized_urls: string[]
+    telegram: string[]
+    whatsapp: string[]
+  }
+  injected_threats: Array<{ url: string; threat_id: string }>
+}
+
 export interface NextAction {
   key: 'wait_profile' | 'review_facts' | 'start_protection' | 'review_notices' | 'file_notices' | 'prove_ownership' | 'all_clear'
   title: string
@@ -459,6 +477,8 @@ export const api = {
     post<ClockEvent[]>(`/api/notices/${id}/clock`, { event, note }),
   inject: (url: string, as_host?: string) =>
     post<{ threat_id: string | null; duplicate: boolean }>('/api/inject', { url, as_host: as_host || null }),
+  inboundVerify: (data: { message: string; sender?: string; channel?: string; auto_inject?: boolean }) =>
+    post<InboundVerifyResult>('/api/inbound/verify', data),
   demoClone: (variant: 'clone' | 'clone2' | 'decoy') =>
     post<{ threat_id: string | null; duplicate: boolean; host: string }>('/api/demo/clone', { variant }),
   demoReset: () => post<{ ok: boolean }>('/api/demo/reset'),
